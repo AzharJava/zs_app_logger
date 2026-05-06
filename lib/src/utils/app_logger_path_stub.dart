@@ -6,7 +6,8 @@ Future<String> getDownloadsPathZSAppLogger() async {
   return "";
 }
 
-Future<dynamic> writeBytesToDownloadsZSAppLogger(String bytes, String name) async {
+Future<dynamic> writeBytesToDownloadsZSAppLogger(
+    String bytes, String name) async {
   ZSAppLogger.log("File write not supported on this platform");
   return null;
 }

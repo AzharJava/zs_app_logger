@@ -6,7 +6,10 @@ import 'storage_manager.dart';
 
 class ZSAppLogger {
   static final List<ZSRequestLogGroup> _logGroups = [];
-  static ZSRequestLogGroup? _currentGroup;
+  // Store active request groups by ID for concurrency support
+  static final Map<String, ZSRequestLogGroup> _activeGroups = {};
+  // Store stopwatches for accurate duration measurement
+  static final Map<String, Stopwatch> _activeStopwatches = {};
   // Map to store recent requests by URI for method lookup
   static final Map<String, String> _uriMethodMap = {};
   static const int _maxUriMethodEntries = 100;
@@ -34,22 +37,25 @@ class ZSAppLogger {
       return true;
       //complete the code
     };
-    print("🔥 AppLogger initialized");
+    debugPrint("🔥 AppLogger initialized");
   }
 
-  /// Start a new request log group
-  static void startRequest({
+  /// Start a new request log group and return its ID
+  static String startRequest({
     required String method,
     required String uri,
   }) {
-    final id = DateTime.now().millisecondsSinceEpoch.toString();
-    _currentGroup = ZSRequestLogGroup(
+    final id = "${DateTime.now().millisecondsSinceEpoch}_${uri.hashCode}";
+    final group = ZSRequestLogGroup(
       id: id,
       method: method,
       uri: uri,
       timestamp: DateTime.now(),
       entries: [],
     );
+    _activeGroups[id] = group;
+    _activeStopwatches[id] = Stopwatch()..start();
+    return id;
   }
 
   /// Add a log entry to the current request group
@@ -61,120 +67,75 @@ class ZSAppLogger {
       type: type,
     );
 
-    if (_currentGroup != null) {
-      _currentGroup!.entries.add(entry);
+    // If no group is provided/found, we could use the "last" active one as fallback
+    // but it's better to be explicit or create a new one.
+    // For standalone logs, we use a fallback ID 'standalone_TIMESTAMP'
+    final groupId = "${DateTime.now().millisecondsSinceEpoch}_standalone";
+    final group = ZSRequestLogGroup(
+      id: groupId,
+      method: 'INFO',
+      uri: 'Application Log',
+      timestamp: DateTime.now(),
+      entries: [entry],
+    );
 
-      // Update status code and error flag if it's a response or error
-      if (type == ZSLogType.response) {
-        final statusMatch =
-            RegExp(r'statusCode[:\s]+(\d+)', caseSensitive: false)
-                .firstMatch(message);
-        if (statusMatch != null) {
-          _currentGroup = ZSRequestLogGroup(
-            id: _currentGroup!.id,
-            method: _currentGroup!.method,
-            uri: _currentGroup!.uri,
-            timestamp: _currentGroup!.timestamp,
-            entries: _currentGroup!.entries,
-            statusCode: int.tryParse(statusMatch.group(1)!),
-            isError: false,
-          );
-        }
-      } else if (type == ZSLogType.error) {
-        _currentGroup = ZSRequestLogGroup(
-          id: _currentGroup!.id,
-          method: _currentGroup!.method,
-          uri: _currentGroup!.uri,
-          timestamp: _currentGroup!.timestamp,
-          entries: _currentGroup!.entries,
-          statusCode: _currentGroup!.statusCode,
-          isError: true,
-        );
-      }
-    } else {
-      // If no current group, extract meaningful info from message
-      String method = 'INFO';
-      String uri = 'Application Log';
-
-      // Try to extract method and URI from message
-      final methodMatch = RegExp(
-              r'\b(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\b',
-              caseSensitive: false)
-          .firstMatch(message);
-      if (methodMatch != null) {
-        method = methodMatch.group(1)!.toUpperCase();
-      }
-
-      // Try to extract URL/endpoint
-      final uriMatch = RegExp(r'(https?://[^\s]+|/[^\s]*)').firstMatch(message);
-      if (uriMatch != null) {
-        uri = uriMatch.group(1)!;
-      } else {
-        // Try to extract a meaningful identifier from the message
-        // Look for common patterns like "Error:", "Warning:", "Success:", etc.
-        final prefixMatch = RegExp(
-                r'^(Error|Warning|Info|Success|Debug)[:\s]+(.+)',
-                caseSensitive: false)
-            .firstMatch(message.trim());
-        if (prefixMatch != null) {
-          method = prefixMatch.group(1)!.toUpperCase();
-          final content = prefixMatch.group(2)!.trim();
-          if (content.length > 50) {
-            uri = '${content.substring(0, 50)}...';
-          } else {
-            uri = content;
-          }
-        } else {
-          // Use first meaningful part of message as URI
-          final trimmed = message.trim();
-          // Remove common prefixes
-          final cleaned = trimmed
-              .replaceFirst(RegExp(r'^\[.*?\]\s*'), '')
-              .replaceFirst(RegExp(r'^[➡️✅❌]\s*'), '')
-              .trim();
-
-          if (cleaned.isNotEmpty) {
-            if (cleaned.length > 50) {
-              uri = '${cleaned.substring(0, 50)}...';
-            } else {
-              uri = cleaned;
-            }
-          }
-        }
-      }
-
-      startRequest(method: method, uri: uri);
-      _currentGroup!.entries.add(entry);
-
-      // Auto-close standalone logs
-      if (autoClose) {
-        endRequest();
-      }
-    }
+    // Standalone logs are added directly to the list
+    _logGroups.add(group);
+    ZSStorageManager.saveLogGroups(_logGroups);
 
     if (kDebugMode) print(entry.formattedMessage);
   }
 
-  /// End the current request group and save it
-  static void endRequest() {
-    if (_currentGroup != null) {
-      _logGroups.add(_currentGroup!);
-      ZSStorageManager.saveLogGroups(_logGroups);
-      _currentGroup = null;
+  /// Internal helper to add log entry to a specific group
+  static void addLogEntryToGroup(String message, ZSLogType type, String id) {
+    final entry = ZSLogEntry(
+      message: message,
+      timestamp: DateTime.now(),
+      type: type,
+    );
+    final group = _activeGroups[id];
+    if (group != null) {
+      group.entries.add(entry);
     }
   }
 
-  /// Log a request (creates a new group)
-  static void logRequest({
+  /// End a request group and save it
+  static void endRequest(String id,
+      {int? statusCode, bool isError = false, int? responseSize}) {
+    final group = _activeGroups.remove(id);
+    final stopwatch = _activeStopwatches.remove(id);
+
+    if (group != null) {
+      stopwatch?.stop();
+      final duration = stopwatch?.elapsedMilliseconds;
+
+      final updatedGroup = ZSRequestLogGroup(
+        id: group.id,
+        method: group.method,
+        uri: group.uri,
+        timestamp: group.timestamp,
+        entries: group.entries,
+        statusCode: statusCode ?? group.statusCode,
+        isError: isError,
+        duration: duration,
+        responseSize: responseSize,
+      );
+
+      _logGroups.add(updatedGroup);
+      ZSStorageManager.saveLogGroups(_logGroups);
+    }
+  }
+
+  /// Log a request and return a session ID
+  static String logRequest({
     required String method,
     required String uri,
     Map<String, dynamic>? headers,
     dynamic body,
     String? token,
   }) {
-    // Store the method for this URI in case we need it later
+    // Store the method for this URI in case we need it later (fallback logic)
     _uriMethodMap[uri] = method;
-    // Clean up old entries to prevent memory leak
     if (_uriMethodMap.length > _maxUriMethodEntries) {
       final keysToRemove = _uriMethodMap.keys
           .take(_uriMethodMap.length - _maxUriMethodEntries)
@@ -184,84 +145,122 @@ class ZSAppLogger {
       }
     }
 
-    startRequest(method: method, uri: uri);
-    addLogEntry("➡️ [REQUEST] $method $uri", ZSLogType.request);
-    if (headers != null) {
-      addLogEntry("Headers: $headers", ZSLogType.request);
+    final id = startRequest(method: method, uri: uri);
+    addLogEntryToGroup("➡️ [REQUEST] $method $uri", ZSLogType.request, id);
+    if (headers != null && headers.isNotEmpty) {
+      addLogEntryToGroup("Headers: $headers", ZSLogType.request, id);
     }
     if (body != null) {
-      addLogEntry("Body: $body", ZSLogType.request);
+      addLogEntryToGroup("Body: $body", ZSLogType.request, id);
     }
     if (token != null) {
-      addLogEntry("Token: $token", ZSLogType.request);
+      addLogEntryToGroup("Token: $token", ZSLogType.request, id);
     }
+    return id;
   }
 
-  /// Log a response (adds to current group)
+  /// Log a response using a session ID
   static void logResponse({
     required int statusCode,
     required String uri,
     dynamic data,
+    String? id,
   }) {
-    // If no current group, create one with the method from our map
-    if (_currentGroup == null) {
-      // Try to get method from our URI method map
+    String sessionId = id ?? "";
+
+    // Fallback if no ID — try to find an active request for this URI
+    if (sessionId.isEmpty) {
+      for (var entry in _activeGroups.entries) {
+        if (entry.value.uri == uri) {
+          sessionId = entry.key;
+          break;
+        }
+      }
+    }
+
+    // If still no ID, create a standalone log group (will be inaccurate for duration)
+    if (sessionId.isEmpty) {
       String method = _uriMethodMap[uri] ?? 'GET';
-      startRequest(method: method, uri: uri);
-      // Remove from map after use
+      sessionId = startRequest(method: method, uri: uri);
       _uriMethodMap.remove(uri);
     }
 
-    addLogEntry(
-        "✅ [RESPONSE] StatusCode: $statusCode $uri", ZSLogType.response);
+    // Calculate response size
+    int? responseSize;
     if (data != null) {
-      addLogEntry("Response Data: $data", ZSLogType.response);
+      if (data is String) {
+        responseSize = data.length;
+      } else {
+        try {
+          responseSize = data.toString().length;
+        } catch (_) {}
+      }
     }
-    endRequest();
+
+    addLogEntryToGroup("✅ [RESPONSE] StatusCode: $statusCode $uri",
+        ZSLogType.response, sessionId);
+    if (data != null) {
+      addLogEntryToGroup("Response Data: $data", ZSLogType.response, sessionId);
+    }
+
+    endRequest(sessionId, statusCode: statusCode, responseSize: responseSize);
   }
 
-  /// Log an error (adds to current group or creates new one)
+  /// Log an error using a session ID
   static void logError({
     required int statusCode,
     required String uri,
     String? errorType,
     String? errorMessage,
     dynamic responseData,
+    String? id,
   }) {
-    // If no current group, create one with the method from our map
-    if (_currentGroup == null) {
-      // Try to get method from our URI method map
+    String sessionId = id ?? "";
+
+    // Fallback if no ID — try to find an active request for this URI
+    if (sessionId.isEmpty) {
+      for (var entry in _activeGroups.entries) {
+        if (entry.value.uri == uri) {
+          sessionId = entry.key;
+          break;
+        }
+      }
+    }
+
+    // If still no ID, create a standalone log group
+    if (sessionId.isEmpty) {
       String method = _uriMethodMap[uri] ?? 'ERROR';
-      startRequest(method: method, uri: uri);
-      // Remove from map after use
+      sessionId = startRequest(method: method, uri: uri);
       _uriMethodMap.remove(uri);
     }
 
-    addLogEntry("❌ [ERROR] StatusCode: $statusCode $uri", ZSLogType.error);
+    // Calculate response size
+    int? responseSize;
+    if (responseData != null) {
+      if (responseData is String) {
+        responseSize = responseData.length;
+      } else {
+        try {
+          responseSize = responseData.toString().length;
+        } catch (_) {}
+      }
+    }
+
+    addLogEntryToGroup(
+        "❌ [ERROR] StatusCode: $statusCode $uri", ZSLogType.error, sessionId);
     if (errorType != null) {
-      addLogEntry("Error Type: $errorType", ZSLogType.error);
+      addLogEntryToGroup("Error Type: $errorType", ZSLogType.error, sessionId);
     }
     if (errorMessage != null) {
-      addLogEntry("Error Message: $errorMessage", ZSLogType.error);
+      addLogEntryToGroup(
+          "Error Message: $errorMessage", ZSLogType.error, sessionId);
     }
     if (responseData != null) {
-      addLogEntry("Response: $responseData", ZSLogType.error);
+      addLogEntryToGroup("Response: $responseData", ZSLogType.error, sessionId);
     }
 
-    // Ensure the status code is set on the group before ending
-    if (_currentGroup != null) {
-      _currentGroup = ZSRequestLogGroup(
-        id: _currentGroup!.id,
-        method: _currentGroup!.method,
-        uri: _currentGroup!.uri,
-        timestamp: _currentGroup!.timestamp,
-        entries: _currentGroup!.entries,
-        statusCode: statusCode > 0 ? statusCode : _currentGroup!.statusCode,
-        isError: true,
-      );
-    }
-
-    endRequest();
+    endRequest(sessionId,
+        statusCode: statusCode, isError: true, responseSize: responseSize);
   }
 
   /// Legacy method for backward compatibility
@@ -281,13 +280,19 @@ class ZSAppLogger {
 
   static void clear() {
     _logGroups.clear();
-    _currentGroup = null;
+    _activeGroups.clear();
+    _activeStopwatches.clear();
     _uriMethodMap.clear();
     ZSStorageManager.clearLogs();
   }
 
   static void deleteLogGroup(String id) {
     _logGroups.removeWhere((group) => group.id == id);
+    ZSStorageManager.saveLogGroups(_logGroups);
+  }
+
+  static void deleteLogGroups(List<String> ids) {
+    _logGroups.removeWhere((group) => ids.contains(group.id));
     ZSStorageManager.saveLogGroups(_logGroups);
   }
 }

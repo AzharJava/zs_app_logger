@@ -38,7 +38,6 @@ class ZSLoggerConfig {
     final config = ZSLoggerConfig();
     config._environment = environment;
     config._allowedDeviceIds = allowedDeviceIds;
-
     // Set default values based on environment
     switch (environment) {
       case LoggerEnvironment.production:

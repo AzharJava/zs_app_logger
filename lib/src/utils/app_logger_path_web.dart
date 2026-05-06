@@ -8,7 +8,8 @@ Future<String> getDownloadsPathZSAppLogger() async {
   return "";
 }
 
-Future<String?> writeBytesToDownloadsZSAppLogger(String bytes, String name) async {
+Future<String?> writeBytesToDownloadsZSAppLogger(
+    String bytes, String name) async {
   try {
     // Create a blob from the string content
     final blob = html.Blob([bytes], 'text/plain');

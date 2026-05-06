@@ -9,6 +9,8 @@ class ZSRequestLogGroup {
   final int? statusCode;
   final bool isError;
   final String? token;
+  final int? duration; // In milliseconds
+  final int? responseSize; // In bytes
 
   ZSRequestLogGroup({
     required this.id,
@@ -19,6 +21,8 @@ class ZSRequestLogGroup {
     this.statusCode,
     this.isError = false,
     this.token,
+    this.duration,
+    this.responseSize,
   });
 
   Map<String, dynamic> toJson() {
@@ -31,6 +35,8 @@ class ZSRequestLogGroup {
       'statusCode': statusCode,
       'isError': isError,
       'token': token,
+      'duration': duration,
+      'responseSize': responseSize,
     };
   }
 
@@ -46,6 +52,8 @@ class ZSRequestLogGroup {
       statusCode: json['statusCode'] as int?,
       isError: json['isError'] as bool? ?? false,
       token: json['token'] as String?,
+      duration: json['duration'] as int?,
+      responseSize: json['responseSize'] as int?,
     );
   }
 

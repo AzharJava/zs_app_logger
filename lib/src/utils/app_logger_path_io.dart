@@ -2,7 +2,9 @@
 import 'dart:io';
 
 import 'package:open_file/open_file.dart';
+// ignore: depend_on_referenced_packages
 import 'package:path_provider/path_provider.dart';
+
 import '../../app_logger.dart';
 
 Future<String> getDownloadsPathZSAppLogger() async {
@@ -66,7 +68,8 @@ Future<String> getDownloadsPathZSAppLogger() async {
   }
 }
 
-Future<dynamic> writeBytesToDownloadsZSAppLogger(String bytes, String name) async {
+Future<dynamic> writeBytesToDownloadsZSAppLogger(
+    String bytes, String name) async {
   final path = await getDownloadsPathZSAppLogger();
   // Create a file for the path of
   // device and file name with extension

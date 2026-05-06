@@ -32,7 +32,6 @@ class ZSStorageManager {
           .toList();
     } catch (e) {
       // If migration from old format fails, return empty list
-      print("Error loading logs: $e");
       return [];
     }
   }

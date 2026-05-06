@@ -9,6 +9,8 @@ environment:
 
 dependencies:
   device_info_plus: ^12.3.0
+  battery_plus: ^7.0.0
+  package_info_plus: ^9.0.0
   flutter:
     sdk: flutter
   get_storage: 
