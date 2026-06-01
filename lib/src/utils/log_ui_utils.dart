@@ -1,9 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../crash_capture.dart';
+import '../log_screen.dart';
 import '../models/log_entry.dart';
 import '../models/request_log_group.dart';
-import '../log_screen.dart';
 
 class LogUIUtils {
   static Color getLogColor(ZSLogEntry entry) {
@@ -37,7 +38,8 @@ class LogUIUtils {
       case 'OPTIONS':
         return Colors.tealAccent.shade400;
       case 'ERROR':
-        return Colors.redAccent.shade200;
+      case 'CRASH':
+        return Colors.deepOrangeAccent;
       case 'INFO':
         return Colors.amberAccent.shade200;
       default:
@@ -64,6 +66,8 @@ class LogUIUtils {
         return Icons.settings_rounded;
       case 'ERROR':
         return Icons.error_outline_rounded;
+      case 'CRASH':
+        return Icons.bug_report_outlined;
       case 'INFO':
         return Icons.info_outline_rounded;
       default:
@@ -85,6 +89,9 @@ class LogUIUtils {
   }
 
   static Color getGroupColor(ZSRequestLogGroup group) {
+    if (ZSCrashCapture.isCrashGroup(group)) {
+      return Colors.deepOrangeAccent;
+    }
     if (group.isError) {
       return Colors.redAccent.shade200;
     }

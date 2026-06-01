@@ -2,6 +2,7 @@
 //onl
 export 'debug_banner.dart';
 export 'src/app_logger.dart';
+export 'src/crash_capture.dart';
 export 'src/log_screen.dart';
 export 'src/logger_config.dart';
 export 'src/models/log_entry.dart';

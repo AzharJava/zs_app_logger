@@ -15,28 +15,81 @@ A powerful, lightweight, and customizable logging package for Flutter applicatio
 
 ## Getting Started 🏁
 
-### 1. Configuration
+### 1. One-line setup (recommended)
 
-Initialize the logger in your `main.dart` before `runApp()`. Use `ZSLoggerConfig.configure` to set up the environment and behavior.
+Like Firebase Crashlytics — initialize once in `main` and automatically capture **Flutter errors**, **async errors**, and **zone errors**:
 
 ```dart
-import 'package:app_logger/app_logger.dart';
+import 'package:zs_app_logger/app_logger.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await ZSLoggerConfig.configure(
+  await ZSLoggerConfig.bootstrap(
     environment: LoggerEnvironment.development, // .production, .qa
-    showBugButton: true, // Toggle the debug banner
-    enableLogging: true,
-    enableStorage: true,
+    showBugButton: true,
+    startApp: () => runApp(const MyApp()),
   );
-
-  runApp(const MyApp());
 }
 ```
 
-### 2. UI Integration
+All crashes appear in the log viewer under sources like `Flutter Error`, `Async Error`, or `Zone Error`.
+
+### 2. Manual setup (configure + runGuarded)
+
+```dart
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await ZSLoggerConfig.configure(
+    environment: LoggerEnvironment.development,
+    captureErrors: true,        // Flutter + async errors (default: true)
+    dumpErrorsToConsole: true,  // Also print in debug console
+  );
+
+  ZSLoggerConfig.runGuarded(() => runApp(const MyApp()));
+}
+```
+
+### 3. Report errors manually
+
+```dart
+try {
+  await riskyOperation();
+} catch (e, stack) {
+  ZSAppLogger.captureException(e, stack, source: 'Checkout', reason: 'Payment failed');
+}
+```
+
+### 4. Forward to Firebase / Sentry
+
+Use `onErrorReported` in `bootstrap` or `configure`, or register multiple reporters:
+
+```dart
+await ZSLoggerConfig.bootstrap(
+  environment: LoggerEnvironment.production,
+  startApp: () => runApp(const MyApp()),
+  onErrorReported: (report) {
+    // Firebase Crashlytics example:
+    // FirebaseCrashlytics.instance.recordError(
+    //   report.error,
+    //   report.stack,
+    //   reason: report.source,
+    // );
+    // Sentry example:
+    // Sentry.captureException(report.error, stackTrace: report.stack);
+  },
+);
+
+// Or add later:
+ZSAppLogger.addErrorReporter((report) { /* ... */ });
+```
+
+### 5. Crash filter in log viewer
+
+Open the log screen and tap the **Crashes** filter chip to see only Flutter/async/zone errors. Crash logs are highlighted in orange and counted separately in the stats bar.
+
+### 6. UI Integration
 
 Wrap your application or specific screens with the `DebugBanner` to provide easy access to logs.
 
@@ -118,8 +171,13 @@ ZSAppLogger.log("User clicked on the login button");
 
 | Keyword / Class | Description |
 | :--- | :--- |
-| **`ZSAppLogger`** | The main entry point for logging. Contains methods like `logRequest`, `logResponse`, `logError`, and `log`. |
-| **`ZSLoggerConfig`** | A singleton used to configure the logger's behavior (environment, visibility, storage). |
+| **`ZSAppLogger`** | The main entry point for logging. Contains `logRequest`, `logResponse`, `logError`, `captureException`, and `log`. |
+| **`ZSLoggerConfig`** | Configure the logger. Use `bootstrap()` for one-call init + error capture, or `configure()` + `runGuarded()`. |
+| **`ZSCrashCapture`** | Low-level global error handlers (usually used via `ZSLoggerConfig`). |
+| **`ZSErrorCaptureOptions`** | Toggle Flutter/async error capture and console dumping. |
+| **`ZSCrashReport`** | Error payload passed to `onErrorReported` / `ZSErrorReporter`. |
+| **`ZSErrorReporter`** | Callback type for forwarding errors to external services. |
+| **`FilterStatus.crash`** | Log viewer filter for app crashes only. |
 | **`DebugBanner`** | A widget that shows a "Tap to View Logs" banner. It respects the `ZSLoggerConfig` visibility rules. |
 | **`LogScreen`** | The UI component that displays the list of all captured logs. |
 | **`LoggerEnvironment`**| Enum containing `production`, `development`, and `qa` to control logger sensitivity. |

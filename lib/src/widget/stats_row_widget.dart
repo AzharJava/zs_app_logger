@@ -60,6 +60,16 @@ class ZSAppLoggerStats extends StatelessWidget {
                   stretch: true,
                 ),
               ),
+              SizedBox(width: isCompactPhone ? 6 : 8),
+              Expanded(
+                child: ZSCompactStatItem(
+                  label: 'Crash',
+                  value: '${stats['crashes'] ?? 0}',
+                  color: Colors.deepOrangeAccent,
+                  compact: true,
+                  stretch: true,
+                ),
+              ),
             ],
           )
         else
@@ -82,6 +92,12 @@ class ZSAppLoggerStats extends StatelessWidget {
                 label: 'Errors',
                 value: '${stats['errors']}',
                 color: Colors.redAccent,
+              ),
+              const SizedBox(width: 8),
+              ZSCompactStatItem(
+                label: 'Crashes',
+                value: '${stats['crashes'] ?? 0}',
+                color: Colors.deepOrangeAccent,
               ),
               const SizedBox(width: 10),
             ],

@@ -1,11 +1,13 @@
 import 'package:flutter/foundation.dart';
 
+import 'crash_capture.dart';
 import 'models/log_entry.dart';
 import 'models/request_log_group.dart';
 import 'storage_manager.dart';
 
 class ZSAppLogger {
   static final List<ZSRequestLogGroup> _logGroups = [];
+  static final List<ZSErrorReporter> _errorReporters = [];
   // Store active request groups by ID for concurrency support
   static final Map<String, ZSRequestLogGroup> _activeGroups = {};
   // Store stopwatches for accurate duration measurement
@@ -13,31 +15,97 @@ class ZSAppLogger {
   // Map to store recent requests by URI for method lookup
   static final Map<String, String> _uriMethodMap = {};
   static const int _maxUriMethodEntries = 100;
+  static bool _saveToLocalStorage = true;
 
-  static Future<void> init() async {
-    await ZSStorageManager.init();
-    final storedGroups = await ZSStorageManager.loadLogGroups();
-    _logGroups.addAll(storedGroups);
+  static Future<void> init({
+    ZSErrorCaptureOptions errorCapture = ZSErrorCaptureOptions.all,
+    bool saveToLocalStorage = true,
+  }) async {
+    _saveToLocalStorage = saveToLocalStorage;
+    if (_saveToLocalStorage) {
+      await ZSStorageManager.init();
+      final storedGroups = await ZSStorageManager.loadLogGroups();
+      _logGroups.addAll(storedGroups);
+    }
 
-    FlutterError.onError = (FlutterErrorDetails details) {
-      logError(
-        statusCode: 0,
-        uri: 'Flutter Error',
-        errorMessage: details.exceptionAsString(),
-      );
-      if (kDebugMode) FlutterError.dumpErrorToConsole(details);
-    };
+    ZSCrashCapture.install(options: errorCapture);
+    debugPrint('🔥 ZSAppLogger initialized (saveToLocalStorage: $saveToLocalStorage)');
+  }
 
-    PlatformDispatcher.instance.onError = (error, stack) {
-      logError(
-        statusCode: 0,
-        uri: 'Platform Error',
-        errorMessage: "$error\n$stack",
-      );
-      return true;
-      //complete the code
-    };
-    debugPrint("🔥 AppLogger initialized");
+  /// Register a callback to forward errors to Firebase Crashlytics, Sentry, etc.
+  static void addErrorReporter(ZSErrorReporter reporter) {
+    if (!_errorReporters.contains(reporter)) {
+      _errorReporters.add(reporter);
+    }
+  }
+
+  static void removeErrorReporter(ZSErrorReporter reporter) {
+    _errorReporters.remove(reporter);
+  }
+
+  static void clearErrorReporters() => _errorReporters.clear();
+
+  static void _notifyErrorReporters(ZSCrashReport report) {
+    for (final reporter in List<ZSErrorReporter>.from(_errorReporters)) {
+      try {
+        reporter(report);
+      } catch (e, stack) {
+        if (kDebugMode) {
+          debugPrint('ZSAppLogger: error reporter failed: $e\n$stack');
+        }
+      }
+    }
+  }
+
+  /// Log any uncaught exception (Flutter, async, zone, or manual).
+  /// Use this like Firebase Crashlytics `recordError`.
+  static void captureException(
+    Object error,
+    StackTrace? stack, {
+    String source = 'Uncaught Error',
+    String? reason,
+    FlutterErrorDetails? flutterDetails,
+  }) {
+    final buffer = StringBuffer()
+      ..writeln('Type: ${error.runtimeType}')
+      ..writeln('Error: $error');
+
+    if (reason != null && reason.isNotEmpty) {
+      buffer.writeln('Reason: $reason');
+    }
+    if (flutterDetails != null) {
+      if (flutterDetails.library != null) {
+        buffer.writeln('Library: ${flutterDetails.library}');
+      }
+      if (flutterDetails.context != null) {
+        buffer.writeln('Context: ${flutterDetails.context}');
+      }
+      final info = flutterDetails.informationCollector?.call();
+      if (info != null && info.isNotEmpty) {
+        buffer.writeln('Info: ${info.join('\n')}');
+      }
+    }
+    if (stack != null) {
+      buffer.writeln('Stack trace:\n$stack');
+    }
+
+    logError(
+      statusCode: 0,
+      uri: source,
+      errorType: error.runtimeType.toString(),
+      errorMessage: buffer.toString(),
+      isCrash: true,
+    );
+
+    _notifyErrorReporters(
+      ZSCrashReport(
+        error: error,
+        stack: stack,
+        source: source,
+        reason: reason,
+        timestamp: DateTime.now(),
+      ),
+    );
   }
 
   /// Start a new request log group and return its ID
@@ -81,7 +149,9 @@ class ZSAppLogger {
 
     // Standalone logs are added directly to the list
     _logGroups.add(group);
-    ZSStorageManager.saveLogGroups(_logGroups);
+    if (_saveToLocalStorage) {
+      ZSStorageManager.saveLogGroups(_logGroups);
+    }
 
     if (kDebugMode) print(entry.formattedMessage);
   }
@@ -101,7 +171,10 @@ class ZSAppLogger {
 
   /// End a request group and save it
   static void endRequest(String id,
-      {int? statusCode, bool isError = false, int? responseSize}) {
+      {int? statusCode,
+      bool isError = false,
+      bool isCrash = false,
+      int? responseSize}) {
     final group = _activeGroups.remove(id);
     final stopwatch = _activeStopwatches.remove(id);
 
@@ -117,12 +190,15 @@ class ZSAppLogger {
         entries: group.entries,
         statusCode: statusCode ?? group.statusCode,
         isError: isError,
+        isCrash: isCrash,
         duration: duration,
         responseSize: responseSize,
       );
 
       _logGroups.add(updatedGroup);
-      ZSStorageManager.saveLogGroups(_logGroups);
+      if (_saveToLocalStorage) {
+        ZSStorageManager.saveLogGroups(_logGroups);
+      }
     }
   }
 
@@ -214,6 +290,7 @@ class ZSAppLogger {
     String? errorMessage,
     dynamic responseData,
     String? id,
+    bool isCrash = false,
   }) {
     String sessionId = id ?? "";
 
@@ -260,7 +337,10 @@ class ZSAppLogger {
     }
 
     endRequest(sessionId,
-        statusCode: statusCode, isError: true, responseSize: responseSize);
+        statusCode: statusCode,
+        isError: true,
+        isCrash: isCrash,
+        responseSize: responseSize);
   }
 
   /// Legacy method for backward compatibility
@@ -273,9 +353,11 @@ class ZSAppLogger {
 
   /// Refresh logs by reloading from storage
   static Future<void> refresh() async {
-    final storedGroups = await ZSStorageManager.loadLogGroups();
-    _logGroups.clear();
-    _logGroups.addAll(storedGroups);
+    if (_saveToLocalStorage) {
+      final storedGroups = await ZSStorageManager.loadLogGroups();
+      _logGroups.clear();
+      _logGroups.addAll(storedGroups);
+    }
   }
 
   static void clear() {
@@ -283,16 +365,22 @@ class ZSAppLogger {
     _activeGroups.clear();
     _activeStopwatches.clear();
     _uriMethodMap.clear();
-    ZSStorageManager.clearLogs();
+    if (_saveToLocalStorage) {
+      ZSStorageManager.clearLogs();
+    }
   }
 
   static void deleteLogGroup(String id) {
     _logGroups.removeWhere((group) => group.id == id);
-    ZSStorageManager.saveLogGroups(_logGroups);
+    if (_saveToLocalStorage) {
+      ZSStorageManager.saveLogGroups(_logGroups);
+    }
   }
 
   static void deleteLogGroups(List<String> ids) {
     _logGroups.removeWhere((group) => ids.contains(group.id));
-    ZSStorageManager.saveLogGroups(_logGroups);
+    if (_saveToLocalStorage) {
+      ZSStorageManager.saveLogGroups(_logGroups);
+    }
   }
 }

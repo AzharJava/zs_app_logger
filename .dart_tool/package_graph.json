@@ -7,11 +7,13 @@
       "name": "zs_app_logger",
       "version": "0.0.1",
       "dependencies": [
+        "battery_plus",
         "device_info_plus",
         "flutter",
         "get_storage",
         "intl",
         "open_file",
+        "package_info_plus",
         "share_plus"
       ],
       "devDependencies": [
@@ -106,6 +108,34 @@
         "meta",
         "sky_engine",
         "vector_math"
+      ]
+    },
+    {
+      "name": "package_info_plus",
+      "version": "9.0.1",
+      "dependencies": [
+        "clock",
+        "ffi",
+        "flutter",
+        "flutter_web_plugins",
+        "http",
+        "meta",
+        "package_info_plus_platform_interface",
+        "path",
+        "web",
+        "win32"
+      ]
+    },
+    {
+      "name": "battery_plus",
+      "version": "7.0.0",
+      "dependencies": [
+        "battery_plus_platform_interface",
+        "flutter",
+        "flutter_web_plugins",
+        "meta",
+        "upower",
+        "web"
       ]
     },
     {
@@ -402,6 +432,41 @@
       "dependencies": []
     },
     {
+      "name": "package_info_plus_platform_interface",
+      "version": "3.2.1",
+      "dependencies": [
+        "flutter",
+        "meta",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "http",
+      "version": "1.6.0",
+      "dependencies": [
+        "async",
+        "http_parser",
+        "meta",
+        "web"
+      ]
+    },
+    {
+      "name": "upower",
+      "version": "0.7.0",
+      "dependencies": [
+        "dbus"
+      ]
+    },
+    {
+      "name": "battery_plus_platform_interface",
+      "version": "2.0.1",
+      "dependencies": [
+        "flutter",
+        "meta",
+        "plugin_platform_interface"
+      ]
+    },
+    {
       "name": "win32_registry",
       "version": "2.1.0",
       "dependencies": [
@@ -540,6 +605,26 @@
       ]
     },
     {
+      "name": "http_parser",
+      "version": "4.1.2",
+      "dependencies": [
+        "collection",
+        "source_span",
+        "string_scanner",
+        "typed_data"
+      ]
+    },
+    {
+      "name": "dbus",
+      "version": "0.7.12",
+      "dependencies": [
+        "args",
+        "ffi",
+        "meta",
+        "xml"
+      ]
+    },
+    {
       "name": "vm_service",
       "version": "15.0.2",
       "dependencies": []
@@ -590,6 +675,20 @@
       ]
     },
     {
+      "name": "xml",
+      "version": "6.6.1",
+      "dependencies": [
+        "collection",
+        "meta",
+        "petitparser"
+      ]
+    },
+    {
+      "name": "args",
+      "version": "2.7.0",
+      "dependencies": []
+    },
+    {
       "name": "pub_semver",
       "version": "2.2.0",
       "dependencies": [
@@ -631,6 +730,14 @@
       "dependencies": [
         "collection",
         "hooks"
+      ]
+    },
+    {
+      "name": "petitparser",
+      "version": "7.0.2",
+      "dependencies": [
+        "collection",
+        "meta"
       ]
     },
     {

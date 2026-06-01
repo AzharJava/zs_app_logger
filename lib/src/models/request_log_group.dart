@@ -8,6 +8,7 @@ class ZSRequestLogGroup {
   final List<ZSLogEntry> entries;
   final int? statusCode;
   final bool isError;
+  final bool isCrash;
   final String? token;
   final int? duration; // In milliseconds
   final int? responseSize; // In bytes
@@ -20,6 +21,7 @@ class ZSRequestLogGroup {
     required this.entries,
     this.statusCode,
     this.isError = false,
+    this.isCrash = false,
     this.token,
     this.duration,
     this.responseSize,
@@ -34,6 +36,7 @@ class ZSRequestLogGroup {
       'entries': entries.map((e) => e.toJson()).toList(),
       'statusCode': statusCode,
       'isError': isError,
+      'isCrash': isCrash,
       'token': token,
       'duration': duration,
       'responseSize': responseSize,
@@ -51,6 +54,7 @@ class ZSRequestLogGroup {
           .toList(),
       statusCode: json['statusCode'] as int?,
       isError: json['isError'] as bool? ?? false,
+      isCrash: json['isCrash'] as bool? ?? false,
       token: json['token'] as String?,
       duration: json['duration'] as int?,
       responseSize: json['responseSize'] as int?,

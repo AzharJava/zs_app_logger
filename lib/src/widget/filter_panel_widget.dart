@@ -171,6 +171,8 @@ class ZSAppLoggerFilterPanel extends StatelessWidget {
                   const SizedBox(width: 6),
                   _buildStatusChip('Err', FilterStatus.error),
                   const SizedBox(width: 6),
+                  _buildStatusChip('Crash', FilterStatus.crash),
+                  const SizedBox(width: 6),
                   _buildStatusChip('4xx', FilterStatus.clientError),
                   const SizedBox(width: 6),
                   _buildStatusChip('5xx', FilterStatus.serverError),
@@ -185,6 +187,7 @@ class ZSAppLoggerFilterPanel extends StatelessWidget {
                 _buildStatusChip('All', FilterStatus.all),
                 _buildStatusChip('Success', FilterStatus.success),
                 _buildStatusChip('Errors', FilterStatus.error),
+                _buildStatusChip('Crashes', FilterStatus.crash),
                 _buildStatusChip('4xx', FilterStatus.clientError),
                 _buildStatusChip('5xx', FilterStatus.serverError),
               ],
@@ -312,6 +315,9 @@ class ZSAppLoggerFilterPanel extends StatelessWidget {
         break;
       case FilterStatus.error:
         chipColor = Colors.redAccent;
+        break;
+      case FilterStatus.crash:
+        chipColor = Colors.deepOrangeAccent;
         break;
       case FilterStatus.clientError:
         chipColor = Colors.orangeAccent;

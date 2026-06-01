@@ -1,4 +1,5 @@
 import 'app_logger.dart';
+import 'crash_capture.dart';
 
 /// Environment types for logger configuration
 enum LoggerEnvironment {
@@ -25,16 +26,31 @@ class ZSLoggerConfig {
     return _instance!;
   }
 
-  /// Initialize configuration with environment
-  /// Call this once in main.dart - it will also initialize AppLogger
+  /// Initialize configuration with environment.
+  /// Call once in main.dart — also installs Flutter/async error capture.
   static Future<void> configure({
     required LoggerEnvironment environment,
     bool? showBugButton,
     bool? enableLogging,
     bool? enableStorage,
     List<String>? allowedDeviceIds,
+    bool captureErrors = true,
+    bool dumpErrorsToConsole = true,
+    ZSErrorReporter? onErrorReported,
   }) async {
-    await ZSAppLogger.init();
+    if (onErrorReported != null) {
+      ZSAppLogger.addErrorReporter(onErrorReported);
+    }
+    final resolvedEnableStorage = enableStorage ?? true;
+    await ZSAppLogger.init(
+      saveToLocalStorage: resolvedEnableStorage,
+      errorCapture: captureErrors
+          ? ZSErrorCaptureOptions(
+              dumpToConsoleInDebug: dumpErrorsToConsole,
+            )
+          : ZSErrorCaptureOptions.none,
+    );
+    ZSAppLogger.log("Environment is : $environment");
     final config = ZSLoggerConfig();
     config._environment = environment;
     config._allowedDeviceIds = allowedDeviceIds;
@@ -84,4 +100,54 @@ class ZSLoggerConfig {
 
   /// Get allowed device IDs
   List<String>? get allowedDeviceIds => _allowedDeviceIds;
+
+  /// Run your app inside a guarded zone so zone-level errors are logged too.
+  /// Call after [configure]:
+  ///
+  /// ```dart
+  /// await ZSLoggerConfig.configure(...);
+  /// ZSLoggerConfig.runGuarded(() => runApp(const MyApp()));
+  /// ```
+  static void runGuarded(
+    void Function() startApp, {
+    void Function(Object error, StackTrace stack)? onUncaughtError,
+  }) {
+    ZSCrashCapture.runGuarded(startApp, onUncaughtError: onUncaughtError);
+  }
+
+  /// One-call setup: configure logger + run app with full error capture.
+  ///
+  /// ```dart
+  /// void main() async {
+  ///   WidgetsFlutterBinding.ensureInitialized();
+  ///   await ZSLoggerConfig.bootstrap(
+  ///     environment: LoggerEnvironment.development,
+  ///     startApp: () => runApp(const MyApp()),
+  ///   );
+  /// }
+  /// ```
+  static Future<void> bootstrap({
+    required LoggerEnvironment environment,
+    required void Function() startApp,
+    bool? showBugButton,
+    bool? enableLogging,
+    bool? enableStorage,
+    List<String>? allowedDeviceIds,
+    bool captureErrors = true,
+    bool dumpErrorsToConsole = true,
+    ZSErrorReporter? onErrorReported,
+    void Function(Object error, StackTrace stack)? onUncaughtError,
+  }) async {
+    await configure(
+      environment: environment,
+      showBugButton: showBugButton,
+      enableLogging: enableLogging,
+      enableStorage: enableStorage,
+      allowedDeviceIds: allowedDeviceIds,
+      captureErrors: captureErrors,
+      dumpErrorsToConsole: dumpErrorsToConsole,
+      onErrorReported: onErrorReported,
+    );
+    runGuarded(startApp, onUncaughtError: onUncaughtError);
+  }
 }

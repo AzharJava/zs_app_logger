@@ -9,6 +9,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'app_logger.dart';
+import 'crash_capture.dart';
 import 'logger_config.dart';
 import 'models/request_log_group.dart';
 import 'service/log_export_service.dart';
@@ -21,7 +22,7 @@ import 'widget/stats_row_widget.dart';
 
 enum SortBy { latest, oldest, method, statusCode, uri }
 
-enum FilterStatus { all, success, error, clientError, serverError }
+enum FilterStatus { all, success, error, crash, clientError, serverError }
 
 class LogScreen extends StatefulWidget {
   const LogScreen({super.key});
@@ -232,13 +233,15 @@ class _LogScreenState extends State<LogScreen> {
     }
 
     // Status filter
-    if (_filterStatus != FilterStatus.all) {
+    if (_filterStatus == FilterStatus.crash) {
+      groups = groups.where(ZSCrashCapture.isCrashGroup).toList();
+    } else if (_filterStatus != FilterStatus.all) {
       groups = groups.where((group) {
         // If statusCode is null, check if it's an error by isError flag
         if (group.statusCode == null) {
           // If filter is for errors, include groups with isError flag
           if (_filterStatus == FilterStatus.error) {
-            return group.isError;
+            return group.isError && !ZSCrashCapture.isCrashGroup(group);
           }
           // For other filters, exclude groups without status codes
           return false;
@@ -247,9 +250,11 @@ class _LogScreenState extends State<LogScreen> {
         switch (_filterStatus) {
           case FilterStatus.success:
             return group.statusCode! >= 200 && group.statusCode! < 300;
+          case FilterStatus.crash:
+            return false;
           case FilterStatus.error:
-            // Include both status code errors and isError flag
-            return group.statusCode! >= 400 || group.isError;
+            return (group.statusCode! >= 400 || group.isError) &&
+                !ZSCrashCapture.isCrashGroup(group);
           case FilterStatus.clientError:
             return group.statusCode! >= 400 && group.statusCode! < 500;
           case FilterStatus.serverError:
@@ -316,13 +321,10 @@ class _LogScreenState extends State<LogScreen> {
         .length;
     final errors = allGroups
         .where((g) =>
-            // Count HTTP errors (statusCode >= 400)
             (g.statusCode != null && g.statusCode! >= 400) ||
-            // Count Flutter/platform errors (isError flag or statusCode 0 with isError)
-            (g.isError) ||
-            // Count errors with statusCode 0 (Flutter errors)
-            (g.statusCode == 0 && g.method == 'ERROR'))
+            (g.isError && !ZSCrashCapture.isCrashGroup(g)))
         .length;
+    final crashes = allGroups.where(ZSCrashCapture.isCrashGroup).length;
 
     final methodCounts = <String, int>{};
     for (var group in allGroups) {
@@ -334,6 +336,7 @@ class _LogScreenState extends State<LogScreen> {
       'total': total,
       'success': success,
       'errors': errors,
+      'crashes': crashes,
       'methodCounts': methodCounts,
     };
   }
@@ -443,466 +446,484 @@ class _LogScreenState extends State<LogScreen> {
         isCompactPhone ? 10.0 : (isNarrow ? 12.0 : (isTablet ? 20.0 : 14.0));
     final stats = _statistics;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B0E10),
-      appBar: _selectedGroupIds.isNotEmpty
-          ? AppBar(
-              backgroundColor: const Color(0xFF1E2326),
-              elevation: 2,
-              leading: IconButton(
-                style: ButtonStyle(
-                  backgroundColor: WidgetStateProperty.all(Colors.transparent),
-                  overlayColor: WidgetStateProperty.all(Colors.transparent),
-                ),
-                icon: const Icon(Icons.close_rounded, color: Colors.white),
-                onPressed: _exitSelectionMode,
-              ),
-              title: Text(
-                '${_selectedGroupIds.length} selected',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              actions: [
-                IconButton(
+    return SafeArea(
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0B0E10),
+        appBar: _selectedGroupIds.isNotEmpty
+            ? AppBar(
+                backgroundColor: const Color(0xFF1E2326),
+                elevation: 2,
+                leading: IconButton(
                   style: ButtonStyle(
                     backgroundColor:
                         WidgetStateProperty.all(Colors.transparent),
                     overlayColor: WidgetStateProperty.all(Colors.transparent),
                   ),
-                  icon:
-                      const Icon(Icons.delete_rounded, color: Colors.redAccent),
-                  onPressed: _showBulkDeleteDialog,
+                  icon: const Icon(Icons.close_rounded, color: Colors.white),
+                  onPressed: _exitSelectionMode,
                 ),
-                const SizedBox(width: 8),
-              ],
-            )
-          : AppBar(
-              backgroundColor: const Color(0xFF1A1F23),
-              surfaceTintColor: Colors.transparent,
-              elevation: 0,
-              scrolledUnderElevation: 1,
-              toolbarHeight: isCompactPhone ? 48 : kToolbarHeight,
-              leading: Navigator.canPop(context)
-                  ? IconButton(
-                      style: ButtonStyle(
-                        backgroundColor:
-                            WidgetStateProperty.all(Colors.transparent),
-                        overlayColor:
-                            WidgetStateProperty.all(Colors.transparent),
-                      ),
-                      icon: const Icon(Icons.arrow_back_rounded,
-                          color: Colors.white),
-                      onPressed: () => Navigator.maybePop(context),
-                    )
-                  : null,
-              title: Text(
-                'App Logs',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                  fontSize: isCompactPhone ? 17 : 20,
-                  letterSpacing: -0.3,
-                ),
-              ),
-              actions: [
-                PopupMenuButton<String>(
-                  style: ButtonStyle(
-                    backgroundColor:
-                        WidgetStateProperty.all(Colors.transparent),
-                    overlayColor: WidgetStateProperty.all(Colors.transparent),
-                  ),
-                  color: const Color(0xFF1A1F23),
-                  surfaceTintColor: Colors.transparent,
-                  position: PopupMenuPosition.under,
-                  icon: _isRefreshing
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white70),
-                          ),
-                        )
-                      : const Icon(
-                          Icons.more_vert_rounded,
-                          color: Colors.white,
-                        ),
-                  onSelected: (value) {
-                    switch (value) {
-                      case 'refresh':
-                        if (!_isRefreshing) _refreshLogs();
-                        break;
-                      case 'export':
-                        if (_filteredGroups.isNotEmpty) {
-                          LogExportService.exportLogs(
-                            context: context,
-                            groups: _filteredGroups,
-                            appVersion: _appVersion,
-                            osVersion: _osVersion,
-                            batteryLevel: _batteryLevel,
-                            deviceId: _deviceId,
-                            environment: _environmentName,
-                          );
-                        }
-                        break;
-                      case 'clear':
-                        _showClearAllDialog();
-                        break;
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: 'refresh',
-                      enabled: !_isRefreshing,
-                      child: Row(
-                        children: [
-                          const Icon(Icons.refresh_rounded,
-                              color: Colors.white, size: 20),
-                          const SizedBox(width: 12),
-                          const Text('Refresh Logs',
-                              style: TextStyle(color: Colors.white)),
-                        ],
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'export',
-                      enabled: _filteredGroups.isNotEmpty,
-                      child: Row(
-                        children: [
-                          const Icon(Icons.download_rounded,
-                              color: Colors.white, size: 20),
-                          const SizedBox(width: 12),
-                          const Text('Export Logs',
-                              style: TextStyle(color: Colors.white)),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuDivider(height: 1),
-                    PopupMenuItem(
-                      value: 'clear',
-                      child: Row(
-                        children: [
-                          const Icon(Icons.delete_sweep_rounded,
-                              color: Colors.redAccent, size: 20),
-                          const SizedBox(width: 12),
-                          const Text('Clear All Logs',
-                              style: TextStyle(color: Colors.redAccent)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                PopupMenuButton<String>(
-                  color: const Color(0xFF1A1F23),
-                  surfaceTintColor: Colors.transparent,
-                  style: ButtonStyle(
-                    backgroundColor:
-                        WidgetStateProperty.all(Colors.transparent),
-                    overlayColor: WidgetStateProperty.all(Colors.transparent),
-                  ),
-                  position: PopupMenuPosition.under,
-                  icon: const Icon(
-                    Icons.tune_rounded,
+                title: Text(
+                  '${_selectedGroupIds.length} selected',
+                  style: const TextStyle(
                     color: Colors.white,
+                    fontWeight: FontWeight.bold,
                   ),
-                  onSelected: (value) {
-                    switch (value) {
-                      case 'stats':
-                        setState(() => _showStats = !_showStats);
-                        break;
-                      case 'filters':
-                        setState(() => _showFilters = !_showFilters);
-                        break;
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: 'stats',
-                      child: Row(
-                        children: [
-                          Icon(
-                            _showStats
-                                ? Icons.check_box_rounded
-                                : Icons.check_box_outline_blank_rounded,
-                            color:
-                                _showStats ? Colors.cyanAccent : Colors.white54,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 12),
-                          const Text(
-                            'Show Stats',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                        ],
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'filters',
-                      child: Row(
-                        children: [
-                          Icon(
-                            _showFilters
-                                ? Icons.check_box_rounded
-                                : Icons.check_box_outline_blank_rounded,
-                            color: _showFilters
-                                ? Colors.cyanAccent
-                                : Colors.white54,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 12),
-                          const Text(
-                            'Show Filters',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                 ),
-              ],
-            ),
-      body: Column(
-        children: [
-          ZSAppLoggerDeviceInfo(
-            appVersion: _appVersion,
-            osVersion: _osVersion,
-            batteryLevel: _batteryLevel,
-            deviceId: _deviceId,
-            environment: _environmentName,
-            horizontalPadding: horizontalPadding,
-          ),
-          Material(
-            color: const Color(0xFF1A1F23),
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(
-                horizontalPadding,
-                8,
-                horizontalPadding,
-                10,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  ZSAppLoggerStats(
-                    stats: stats,
-                    isNarrow: isNarrow,
-                    isCompactPhone: isCompactPhone,
-                    filteredGroupsLength: filteredGroups.length,
-                    showStats: _showStats,
+                actions: [
+                  IconButton(
+                    style: ButtonStyle(
+                      backgroundColor:
+                          WidgetStateProperty.all(Colors.transparent),
+                      overlayColor: WidgetStateProperty.all(Colors.transparent),
+                    ),
+                    icon: const Icon(Icons.delete_rounded,
+                        color: Colors.redAccent),
+                    onPressed: _showBulkDeleteDialog,
                   ),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _searchController,
-                          style: TextStyle(
+                  const SizedBox(width: 8),
+                ],
+              )
+            : AppBar(
+                backgroundColor: const Color(0xFF1A1F23),
+                surfaceTintColor: Colors.transparent,
+                elevation: 0,
+                scrolledUnderElevation: 1,
+                toolbarHeight: isCompactPhone ? 52 : 60,
+                leading: Navigator.canPop(context)
+                    ? IconButton(
+                        style: ButtonStyle(
+                          backgroundColor:
+                              WidgetStateProperty.all(Colors.transparent),
+                          overlayColor:
+                              WidgetStateProperty.all(Colors.transparent),
+                        ),
+                        icon: const Icon(Icons.arrow_back_rounded,
+                            color: Colors.white),
+                        onPressed: () => Navigator.maybePop(context),
+                      )
+                    : null,
+                title: Text(
+                  'Logs',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    fontSize: isCompactPhone ? 18 : 22,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+                actions: [
+                  PopupMenuButton<String>(
+                    style: ButtonStyle(
+                      backgroundColor:
+                          WidgetStateProperty.all(Colors.transparent),
+                      overlayColor: WidgetStateProperty.all(Colors.transparent),
+                    ),
+                    color: const Color(0xFF1A1F23),
+                    surfaceTintColor: Colors.transparent,
+                    position: PopupMenuPosition.under,
+                    icon: _isRefreshing
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white70),
+                            ),
+                          )
+                        : const Icon(
+                            Icons.more_vert_rounded,
                             color: Colors.white,
-                            fontSize: isCompactPhone ? 15 : 14,
                           ),
-                          decoration: InputDecoration(
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 12,
-                            ),
-                            filled: true,
-                            fillColor: const Color(0xFF121518),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide:
-                                  const BorderSide(color: Colors.white24),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide:
-                                  const BorderSide(color: Colors.white24),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(
-                                color: Color(0xFF4DD0E1),
-                                width: 1.5,
-                              ),
-                            ),
-                            prefixIcon: Icon(
-                              Icons.search_rounded,
-                              color: Colors.white.withValues(alpha: 0.55),
-                              size: 22,
-                            ),
-                            suffixIcon: _searchQuery.isEmpty
-                                ? null
-                                : IconButton(
-                                    style: ButtonStyle(
-                                      backgroundColor: WidgetStateProperty.all(
-                                        Colors.transparent,
-                                      ),
-                                      overlayColor: WidgetStateProperty.all(
-                                        Colors.transparent,
-                                      ),
-                                    ),
-                                    tooltip: 'Clear',
-                                    icon: Icon(
-                                      Icons.clear_rounded,
-                                      size: 20,
-                                      color:
-                                          Colors.white.withValues(alpha: 0.5),
-                                    ),
-                                    onPressed: () {
-                                      _debounce?.cancel();
-                                      _searchController.clear();
-                                      setState(() => _searchQuery = '');
-                                    },
-                                  ),
-                            hintText: 'Search logs…',
-                            hintStyle: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.38),
-                              fontSize: 14,
-                            ),
-                          ),
-                          onChanged: _onSearchChanged,
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'refresh':
+                          if (!_isRefreshing) _refreshLogs();
+                          break;
+                        case 'export':
+                          if (_filteredGroups.isNotEmpty) {
+                            LogExportService.exportLogs(
+                              context: context,
+                              groups: _filteredGroups,
+                              appVersion: _appVersion,
+                              osVersion: _osVersion,
+                              batteryLevel: _batteryLevel,
+                              deviceId: _deviceId,
+                              environment: _environmentName,
+                            );
+                          }
+                          break;
+                        case 'clear':
+                          _showClearAllDialog();
+                          break;
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'refresh',
+                        enabled: !_isRefreshing,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.refresh_rounded,
+                                color: Colors.white, size: 20),
+                            const SizedBox(width: 12),
+                            const Text('Refresh Logs',
+                                style: TextStyle(color: Colors.white)),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      OutlinedButton(
-                        onPressed: _openSortSheet,
-                        style: OutlinedButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          minimumSize: const Size(48, 48),
-                          side: const BorderSide(color: Colors.white24),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          backgroundColor: const Color(0xFF121518),
+                      PopupMenuItem(
+                        value: 'export',
+                        enabled: _filteredGroups.isNotEmpty,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.download_rounded,
+                                color: Colors.white, size: 20),
+                            const SizedBox(width: 12),
+                            const Text('Export Logs',
+                                style: TextStyle(color: Colors.white)),
+                          ],
                         ),
-                        child: const Icon(
-                          Icons.sort_rounded,
-                          color: Colors.cyanAccent,
-                          size: 22,
+                      ),
+                      const PopupMenuDivider(height: 1),
+                      PopupMenuItem(
+                        value: 'clear',
+                        child: Row(
+                          children: [
+                            const Icon(Icons.delete_sweep_rounded,
+                                color: Colors.redAccent, size: 20),
+                            const SizedBox(width: 12),
+                            const Text('Clear All Logs',
+                                style: TextStyle(color: Colors.redAccent)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  PopupMenuButton<String>(
+                    color: const Color(0xFF1A1F23),
+                    surfaceTintColor: Colors.transparent,
+                    style: ButtonStyle(
+                      backgroundColor:
+                          WidgetStateProperty.all(Colors.transparent),
+                      overlayColor: WidgetStateProperty.all(Colors.transparent),
+                    ),
+                    position: PopupMenuPosition.under,
+                    icon: const Icon(
+                      Icons.tune_rounded,
+                      color: Colors.white,
+                    ),
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'stats':
+                          setState(() => _showStats = !_showStats);
+                          break;
+                        case 'filters':
+                          setState(() => _showFilters = !_showFilters);
+                          break;
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'stats',
+                        child: Row(
+                          children: [
+                            Icon(
+                              _showStats
+                                  ? Icons.check_box_rounded
+                                  : Icons.check_box_outline_blank_rounded,
+                              color: _showStats
+                                  ? Colors.cyanAccent
+                                  : Colors.white54,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 12),
+                            const Text(
+                              'Show Stats',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'filters',
+                        child: Row(
+                          children: [
+                            Icon(
+                              _showFilters
+                                  ? Icons.check_box_rounded
+                                  : Icons.check_box_outline_blank_rounded,
+                              color: _showFilters
+                                  ? Colors.cyanAccent
+                                  : Colors.white54,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 12),
+                            const Text(
+                              'Show Filters',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ],
               ),
-            ),
-          ),
-          // Filter Panel (compact)
-          if (_showFilters)
-            ZSAppLoggerFilterPanel(
-              selectedMethods: _selectedMethods,
-              filterStatus: _filterStatus,
-              selectedStartDate: _selectedStartDate,
-              selectedEndDate: _selectedEndDate,
+        body: Column(
+          children: [
+            ZSAppLoggerDeviceInfo(
+              appVersion: _appVersion,
+              osVersion: _osVersion,
+              batteryLevel: _batteryLevel,
+              deviceId: _deviceId,
+              environment: _environmentName,
               horizontalPadding: horizontalPadding,
-              isNarrow: isNarrow,
-              onMethodToggle: (method) {
-                setState(() {
-                  if (_selectedMethods.contains(method)) {
-                    _selectedMethods.remove(method);
-                  } else {
-                    _selectedMethods.add(method);
-                  }
-                });
-              },
-              onStatusChange: (status) {
-                setState(() => _filterStatus = status);
-              },
-              onDateSelect: (isStart) => _selectDate(context, isStart),
-              onClearFilters: () {
-                setState(() {
-                  _selectedMethods.clear();
-                  _filterStatus = FilterStatus.all;
-                  _selectedStartDate = null;
-                  _selectedEndDate = null;
-                });
-              },
-              onClearDates: () {
-                setState(() {
-                  _selectedStartDate = null;
-                  _selectedEndDate = null;
-                });
-              },
             ),
-
-          // Logs List
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () => _refreshLogs(silent: false),
-              color: Colors.cyanAccent,
-              backgroundColor: const Color(0xFF1A1F23),
-              child: filteredGroups.isEmpty
-                  ? ListView(
-                      // Use ListView to make it scrollable even when empty for RefreshIndicator
-                      physics: const AlwaysScrollableScrollPhysics(),
+            Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFF1A1F23),
+                borderRadius: BorderRadius.only(
+                  bottomLeft: Radius.circular(16),
+                  bottomRight: Radius.circular(16),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black38,
+                    blurRadius: 8,
+                    offset: Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  8,
+                  horizontalPadding,
+                  14,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ZSAppLoggerStats(
+                      stats: stats,
+                      isNarrow: isNarrow,
+                      isCompactPhone: isCompactPhone,
+                      filteredGroupsLength: filteredGroups.length,
+                      showStats: _showStats,
+                    ),
+                    Row(
                       children: [
-                        SizedBox(
-                          height: MediaQuery.of(context).size.height * 0.6,
-                          child: Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  _searchQuery.isNotEmpty ||
-                                          _selectedMethods.isNotEmpty ||
-                                          _filterStatus != FilterStatus.all
-                                      ? Icons.search_off
-                                      : Icons.list_alt,
-                                  size: 64,
-                                  color: Colors.white24,
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  _searchQuery.isNotEmpty ||
-                                          _selectedMethods.isNotEmpty ||
-                                          _filterStatus != FilterStatus.all
-                                      ? 'No logs match your filters'
-                                      : 'No logs yet...',
-                                  style: const TextStyle(
-                                    color: Colors.white54,
-                                    fontFamily: 'JetBrainsMono',
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
+                        Expanded(
+                          child: TextFormField(
+                            controller: _searchController,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: isCompactPhone ? 15 : 14,
                             ),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 12,
+                              ),
+                              filled: true,
+                              fillColor: const Color(0xFF121518),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide:
+                                    const BorderSide(color: Colors.white12),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide:
+                                    const BorderSide(color: Colors.white12),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFF00E5FF),
+                                  width: 1.5,
+                                ),
+                              ),
+                              prefixIcon: Icon(
+                                Icons.search_rounded,
+                                color: Colors.white.withValues(alpha: 0.55),
+                                size: 22,
+                              ),
+                              suffixIcon: _searchQuery.isEmpty
+                                  ? null
+                                  : IconButton(
+                                      style: ButtonStyle(
+                                        backgroundColor:
+                                            WidgetStateProperty.all(
+                                          Colors.transparent,
+                                        ),
+                                        overlayColor: WidgetStateProperty.all(
+                                          Colors.transparent,
+                                        ),
+                                      ),
+                                      tooltip: 'Clear',
+                                      icon: Icon(
+                                        Icons.clear_rounded,
+                                        size: 20,
+                                        color:
+                                            Colors.white.withValues(alpha: 0.5),
+                                      ),
+                                      onPressed: () {
+                                        _debounce?.cancel();
+                                        _searchController.clear();
+                                        setState(() => _searchQuery = '');
+                                      },
+                                    ),
+                              hintText: 'Search logs…',
+                              hintStyle: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.38),
+                                fontSize: 14,
+                              ),
+                            ),
+                            onChanged: _onSearchChanged,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton(
+                          onPressed: _openSortSheet,
+                          style: OutlinedButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(48, 48),
+                            side: const BorderSide(color: Colors.white12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            backgroundColor: const Color(0xFF121518),
+                          ),
+                          child: const Icon(
+                            Icons.sort_rounded,
+                            color: Color(0xFF00E5FF),
+                            size: 22,
                           ),
                         ),
                       ],
-                    )
-                  : ListView.builder(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      controller: _scrollController,
-                      padding: EdgeInsets.fromLTRB(
-                        horizontalPadding,
-                        8,
-                        horizontalPadding,
-                        12 + viewPadding.bottom,
-                      ),
-                      itemCount: filteredGroups.length,
-                      itemBuilder: (context, index) {
-                        final group = filteredGroups[index];
-                        return ZSLogItemWidget(
-                          key: ValueKey(group.id),
-                          group: group,
-                          isNarrow: isNarrow,
-                          isCompactPhone: isCompactPhone,
-                          isSelectionMode: _selectedGroupIds.isNotEmpty,
-                          isSelected: _selectedGroupIds.contains(group.id),
-                          onSelected: () => _toggleSelection(group.id),
-                          onLongPress: () => _toggleSelection(group.id),
-                          onDelete: _showDeleteDialog,
-                          onCopy: _copyToClipboard,
-                          onShare: _shareText,
-                          formatGroupLogs: _formatGroupLogs,
-                        );
-                      },
                     ),
+                  ],
+                ),
+              ),
             ),
-          ),
-        ],
+            // Filter Panel (compact)
+            if (_showFilters)
+              ZSAppLoggerFilterPanel(
+                selectedMethods: _selectedMethods,
+                filterStatus: _filterStatus,
+                selectedStartDate: _selectedStartDate,
+                selectedEndDate: _selectedEndDate,
+                horizontalPadding: horizontalPadding,
+                isNarrow: isNarrow,
+                onMethodToggle: (method) {
+                  setState(() {
+                    if (_selectedMethods.contains(method)) {
+                      _selectedMethods.remove(method);
+                    } else {
+                      _selectedMethods.add(method);
+                    }
+                  });
+                },
+                onStatusChange: (status) {
+                  setState(() => _filterStatus = status);
+                },
+                onDateSelect: (isStart) => _selectDate(context, isStart),
+                onClearFilters: () {
+                  setState(() {
+                    _selectedMethods.clear();
+                    _filterStatus = FilterStatus.all;
+                    _selectedStartDate = null;
+                    _selectedEndDate = null;
+                  });
+                },
+                onClearDates: () {
+                  setState(() {
+                    _selectedStartDate = null;
+                    _selectedEndDate = null;
+                  });
+                },
+              ),
+
+            // Logs List
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => _refreshLogs(silent: false),
+                color: Colors.cyanAccent,
+                backgroundColor: const Color(0xFF1A1F23),
+                child: filteredGroups.isEmpty
+                    ? ListView(
+                        // Use ListView to make it scrollable even when empty for RefreshIndicator
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        children: [
+                          SizedBox(
+                            height: MediaQuery.of(context).size.height * 0.6,
+                            child: Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    _searchQuery.isNotEmpty ||
+                                            _selectedMethods.isNotEmpty ||
+                                            _filterStatus != FilterStatus.all
+                                        ? Icons.search_off
+                                        : Icons.list_alt,
+                                    size: 64,
+                                    color: Colors.white24,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    _searchQuery.isNotEmpty ||
+                                            _selectedMethods.isNotEmpty ||
+                                            _filterStatus != FilterStatus.all
+                                        ? 'No logs match your filters'
+                                        : 'No logs yet...',
+                                    style: const TextStyle(
+                                      color: Colors.white54,
+                                      fontFamily: 'JetBrainsMono',
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        controller: _scrollController,
+                        padding: EdgeInsets.fromLTRB(
+                          horizontalPadding,
+                          8,
+                          horizontalPadding,
+                          12 + viewPadding.bottom,
+                        ),
+                        itemCount: filteredGroups.length,
+                        itemBuilder: (context, index) {
+                          final group = filteredGroups[index];
+                          return ZSLogItemWidget(
+                            key: ValueKey(group.id),
+                            group: group,
+                            isNarrow: isNarrow,
+                            isCompactPhone: isCompactPhone,
+                            isSelectionMode: _selectedGroupIds.isNotEmpty,
+                            isSelected: _selectedGroupIds.contains(group.id),
+                            onSelected: () => _toggleSelection(group.id),
+                            onLongPress: () => _toggleSelection(group.id),
+                            onDelete: _showDeleteDialog,
+                            onCopy: _copyToClipboard,
+                            onShare: _shareText,
+                            formatGroupLogs: _formatGroupLogs,
+                          );
+                        },
+                      ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
