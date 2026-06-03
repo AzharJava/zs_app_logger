@@ -50,7 +50,7 @@ class ZSLoggerConfig {
             )
           : ZSErrorCaptureOptions.none,
     );
-    ZSAppLogger.log("Environment is : $environment");
+    // ZSAppLogger.log("Environment is : $environment");§
     final config = ZSLoggerConfig();
     config._environment = environment;
     config._allowedDeviceIds = allowedDeviceIds;

@@ -28,79 +28,89 @@ class ZSAppLoggerStats extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (isNarrow)
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: ZSCompactStatItem(
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: isCompactPhone ? 72 : 80,
+                  child: ZSCompactStatItem(
+                    label: 'Total',
+                    value: '${stats['total']}',
+                    color: Colors.blueAccent,
+                    compact: true,
+                    stretch: true,
+                  ),
+                ),
+                SizedBox(width: isCompactPhone ? 6 : 8),
+                SizedBox(
+                  width: isCompactPhone ? 72 : 80,
+                  child: ZSCompactStatItem(
+                    label: 'OK',
+                    value: '${stats['success']}',
+                    color: Colors.greenAccent,
+                    compact: true,
+                    stretch: true,
+                  ),
+                ),
+                SizedBox(width: isCompactPhone ? 6 : 8),
+                SizedBox(
+                  width: isCompactPhone ? 72 : 80,
+                  child: ZSCompactStatItem(
+                    label: 'Err',
+                    value: '${stats['errors']}',
+                    color: Colors.redAccent,
+                    compact: true,
+                    stretch: true,
+                  ),
+                ),
+                SizedBox(width: isCompactPhone ? 6 : 8),
+                SizedBox(
+                  width: isCompactPhone ? 72 : 80,
+                  child: ZSCompactStatItem(
+                    label: 'Crash',
+                    value: '${stats['crashes'] ?? 0}',
+                    color: Colors.deepOrangeAccent,
+                    compact: true,
+                    stretch: true,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                ZSCompactStatItem(
                   label: 'Total',
                   value: '${stats['total']}',
                   color: Colors.blueAccent,
-                  compact: true,
-                  stretch: true,
                 ),
-              ),
-              SizedBox(width: isCompactPhone ? 6 : 8),
-              Expanded(
-                child: ZSCompactStatItem(
-                  label: 'OK',
+                const SizedBox(width: 8),
+                ZSCompactStatItem(
+                  label: 'Success',
                   value: '${stats['success']}',
                   color: Colors.greenAccent,
-                  compact: true,
-                  stretch: true,
                 ),
-              ),
-              SizedBox(width: isCompactPhone ? 6 : 8),
-              Expanded(
-                child: ZSCompactStatItem(
-                  label: 'Err',
+                const SizedBox(width: 8),
+                ZSCompactStatItem(
+                  label: 'Errors',
                   value: '${stats['errors']}',
                   color: Colors.redAccent,
-                  compact: true,
-                  stretch: true,
                 ),
-              ),
-              SizedBox(width: isCompactPhone ? 6 : 8),
-              Expanded(
-                child: ZSCompactStatItem(
-                  label: 'Crash',
+                const SizedBox(width: 8),
+                ZSCompactStatItem(
+                  label: 'Crashes',
                   value: '${stats['crashes'] ?? 0}',
                   color: Colors.deepOrangeAccent,
-                  compact: true,
-                  stretch: true,
                 ),
-              ),
-            ],
-          )
-        else
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              ZSCompactStatItem(
-                label: 'Total',
-                value: '${stats['total']}',
-                color: Colors.blueAccent,
-              ),
-              const SizedBox(width: 8),
-              ZSCompactStatItem(
-                label: 'Success',
-                value: '${stats['success']}',
-                color: Colors.greenAccent,
-              ),
-              const SizedBox(width: 8),
-              ZSCompactStatItem(
-                label: 'Errors',
-                value: '${stats['errors']}',
-                color: Colors.redAccent,
-              ),
-              const SizedBox(width: 8),
-              ZSCompactStatItem(
-                label: 'Crashes',
-                value: '${stats['crashes'] ?? 0}',
-                color: Colors.deepOrangeAccent,
-              ),
-              const SizedBox(width: 10),
-            ],
+                const SizedBox(width: 10),
+              ],
+            ),
           ),
         SizedBox(height: isNarrow ? 10 : 8),
         if (isNarrow)
