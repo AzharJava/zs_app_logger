@@ -3,13 +3,13 @@ import 'models/request_log_group.dart';
 
 class ZSStorageManager {
   static const _key = "app_logs";
-  static final GetStorage _box = GetStorage();
+  static final GetStorage _box = GetStorage('zs_app_logger');
   static bool _initialized = false;
 
   /// Initialize GetStorage before first use (call once in main)
   static Future<void> init() async {
     if (!_initialized) {
-      await GetStorage.init();
+      await GetStorage.init('zs_app_logger');
       _initialized = true;
     }
   }
