@@ -403,6 +403,8 @@ class _LogScreenState extends State<LogScreen> {
         '┌──────────────────────────────────────────────────────────────');
     buffer.writeln('│ 🚀 [${group.method}] ${group.uri}');
     buffer.writeln('│ 🕒 ${LogUIUtils.formatTimestamp(group.timestamp)}');
+    buffer.writeln('│ ⏱️ Api Call Duration: ${group.duration ?? 0}ms');
+    buffer.writeln('│ 📦 Size: ${LogUIUtils.formatSize(group.responseSize)}');
     buffer.writeln('│ 📊 Status: ${group.statusCode ?? 'N/A'}');
     buffer.writeln(
         '├──────────────────────────────────────────────────────────────');

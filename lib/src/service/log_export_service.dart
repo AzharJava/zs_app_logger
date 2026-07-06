@@ -37,8 +37,9 @@ class LogExportService {
           '================================================================');
       buffer.writeln('🚀 [${group.method}] ${group.uri}');
       buffer.writeln('🕒 ${LogUIUtils.formatTimestamp(group.timestamp)}');
+      buffer.writeln('⏱️ Api Call Duration: ${group.duration ?? 0}ms');
       buffer.writeln(
-          '📊 Status: ${group.statusCode ?? 'N/A'} | ⏱️ ${group.duration ?? 0}ms | 📦 ${LogUIUtils.formatSize(group.responseSize)}');
+          '📊 Status: ${group.statusCode ?? 'N/A'} | 📦 Size: ${LogUIUtils.formatSize(group.responseSize)}');
       buffer.writeln(
           '================================================================\n');
 
