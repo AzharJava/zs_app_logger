@@ -15,6 +15,7 @@ class ZSAppLogger {
   // Map to store recent requests by URI for method lookup
   static final Map<String, String> _uriMethodMap = {};
   static const int _maxUriMethodEntries = 100;
+  static const int _maxLogGroups = 50;
   static bool _saveToLocalStorage = true;
 
   static Future<void> init({
@@ -26,10 +27,17 @@ class ZSAppLogger {
       await ZSStorageManager.init();
       final storedGroups = await ZSStorageManager.loadLogGroups();
       _logGroups.addAll(storedGroups);
+      _enforceLogLimit();
     }
 
     ZSCrashCapture.install(options: errorCapture);
     debugPrint('🔥 ZSAppLogger initialized (saveToLocalStorage: $saveToLocalStorage)');
+  }
+
+  static void _enforceLogLimit() {
+    if (_logGroups.length > _maxLogGroups) {
+      _logGroups.removeRange(0, _logGroups.length - _maxLogGroups);
+    }
   }
 
   /// Register a callback to forward errors to Firebase Crashlytics, Sentry, etc.
@@ -149,6 +157,7 @@ class ZSAppLogger {
 
     // Standalone logs are added directly to the list
     _logGroups.add(group);
+    _enforceLogLimit();
     if (_saveToLocalStorage) {
       ZSStorageManager.saveLogGroups(_logGroups);
     }
@@ -196,6 +205,7 @@ class ZSAppLogger {
       );
 
       _logGroups.add(updatedGroup);
+      _enforceLogLimit();
       if (_saveToLocalStorage) {
         ZSStorageManager.saveLogGroups(_logGroups);
       }
@@ -357,6 +367,7 @@ class ZSAppLogger {
       final storedGroups = await ZSStorageManager.loadLogGroups();
       _logGroups.clear();
       _logGroups.addAll(storedGroups);
+      _enforceLogLimit();
     }
   }
 
